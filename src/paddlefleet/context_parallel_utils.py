@@ -64,12 +64,8 @@ if is_flash_mask_available():
         ) from exc
 
 
-# calculate_per_token_loss switch, read by ContextParallelScatterOp.backward to
-# decide whether to divide the all-gathered gradient by the CP group size (see the
-# comment there and loss_grad_normalization.md 3.5/6.1). Module-level rather than a
-# config field because the op is a stateless PyLayer; set once at trainer/model
-# init from config.calculate_per_token_loss. Default False keeps the legacy
-# mean-of-means path bitwise unchanged.
+# Global calculate_per_token_loss switch, set once by the trainer and read by
+# ContextParallelScatterOp.backward (a stateless PyLayer, hence module-level).
 _PER_TOKEN_GRAD_SCALE = False
 
 
@@ -560,17 +556,8 @@ class ContextParallelScatterOp(PyLayer):
     ):
         ctx.axis = axis
         ctx.mode = mode
-        # Per-token loss only: divide the all-gathered gradient by the CP group
-        # size in backward. Opt-in PER CALL SITE (default False) because this op is
-        # used all over the model -- on rope tables, masks, input_ids, labels,
-        # freqs_cis, valid ranges -- and dividing those backwards would be wrong or
-        # meaningless. It is correct ONLY where the tensor being scattered is the
-        # *embedding output*, whose sole upstream learnable parameter (embed_tokens
-        # / MTP embed) is looked up on the full sequence and therefore receives cp
-        # identical gradient copies through this all-gather. See the backward and
-        # loss_grad_normalization.md 3.5/6.1. Even when a site passes True, the
-        # division still only happens under the global per-token switch, so the
-        # legacy mean-of-means path is byte-identical regardless.
+        # Only embedding-output call sites pass True; it takes effect only when
+        # the global per-token switch is also on. See backward.
         ctx.scale_grad_by_cp = scale_grad_by_cp
         hcg = fleet.get_hybrid_communicate_group()
 
@@ -596,12 +583,9 @@ class ContextParallelScatterOp(PyLayer):
             grad = all_gather_balance(
                 grad_output, axis=ctx.axis, group=ctx.group
             )
-        # Per-token loss + this specific call site opted in (embedding output): the
-        # all-gather put cp identical full-sequence gradient copies on every CP
-        # rank, so the upstream embedding parameter would be counted cp times under
-        # the pure-SUM reduce. Divide them back out here; ``ctx.group`` carries this
-        # microbatch's own CP size. Both conditions are required, so every other
-        # call site and the legacy path are untouched. See loss_grad_normalization.md 3.5/6.1.
+        # Per-token loss: after the all-gather every CP rank holds the same
+        # full-sequence grad, so the embedding weight would be counted cp times
+        # by the SUM grad reduce. Divide by the CP size.
         if (
             getattr(ctx, "scale_grad_by_cp", False)
             and _per_token_grad_scale_enabled()

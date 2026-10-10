@@ -1637,8 +1637,7 @@ class MultiTokenPredictionLayer(FleetLayer):
                         decoder_input,
                         axis=1,
                         mode=self.config.cp_balance_mode,
-                        # Shifted embedding output (E175): divide out cp-duplicate
-                        # embed grads under per-token loss; no-op otherwise.
+                        # Embedding output, see ContextParallelScatterOp.
                         scale_grad_by_cp=True,
                     )
                 if self.config.sequence_parallel:

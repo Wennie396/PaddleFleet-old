@@ -666,9 +666,7 @@ class GPTEmbedding(FleetLayer):
                                 decoder_input,
                                 axis=1,
                                 mode=self.config.cp_balance_mode,
-                                # Embedding output: under per-token loss its backward
-                                # all-gather puts cp duplicate grads on embed_tokens;
-                                # divide them out (E175). No-op unless per-token is on.
+                                # Embedding output, see ContextParallelScatterOp.
                                 scale_grad_by_cp=True,
                             )
                         if (
@@ -718,8 +716,7 @@ class GPTEmbedding(FleetLayer):
                                 inputs_embeds,
                                 axis=1,
                                 mode=self.config.cp_balance_mode,
-                                # Embedding output (E175): divide out cp-duplicate
-                                # embed grads under per-token; no-op otherwise.
+                                # Embedding output, see ContextParallelScatterOp.
                                 scale_grad_by_cp=True,
                             )
 
@@ -766,8 +763,7 @@ class GPTEmbedding(FleetLayer):
                                     inputs_embeds_mtp,
                                     axis=1,
                                     mode=self.config.cp_balance_mode,
-                                    # Embedding output (E175): divide out cp-duplicate
-                                    # embed grads under per-token; no-op otherwise.
+                                    # Embedding output, see ContextParallelScatterOp.
                                     scale_grad_by_cp=True,
                                 )
 
@@ -842,8 +838,7 @@ class GPTEmbedding(FleetLayer):
                     decoder_input,
                     axis=1,
                     mode=self.config.cp_balance_mode,
-                    # Embedding output, plain no-MTP path (E175): divide out
-                    # cp-duplicate embed grads under per-token; no-op otherwise.
+                    # Embedding output, see ContextParallelScatterOp.
                     scale_grad_by_cp=True,
                 )
 
